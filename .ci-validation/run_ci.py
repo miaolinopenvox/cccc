@@ -37,7 +37,8 @@ for index, step in enumerate(workflow["jobs"][args.job]["steps"]):
     command = (["pwsh", "-NoProfile", "-Command", "$ErrorActionPreference='Stop'; " + step["run"] + "; if ($LASTEXITCODE) { exit $LASTEXITCODE }"]
                if os.name == "nt" else ["bash", "-e", "-o", "pipefail", "-c", step["run"]])
     with log.open("w", encoding="utf-8") as output:
-        result = subprocess.run(command, env=env, stdout=output, stderr=subprocess.STDOUT, check=False)
+        result = subprocess.run(command, env=env, stdout=output, stderr=subprocess.STDOUT, check=False,
+                                timeout=step["timeout-minutes"] * 60 if "timeout-minutes" in step else None)
     results.append({"step": name, "exit_code": result.returncode, "seconds": round(time.time()-started, 2), "log": str(log)})
     (args.evidence / f"{args.job}.json").write_text(json.dumps(results, ensure_ascii=False, indent=2), encoding="utf-8")
     print(f"结束 {name}: {result.returncode} ({results[-1]['seconds']} 秒)", flush=True)

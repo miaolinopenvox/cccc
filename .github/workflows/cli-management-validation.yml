@@ -24,6 +24,8 @@ jobs:
           node-version: "24.19.0"
       - uses: dtolnay/rust-toolchain@1.88.0
       - uses: Swatinem/rust-cache@v2
+        with:
+          cache-on-failure: true
       - name: 准备检查依赖和原生 Web 产物
         run: |
           python -m pip install pyyaml
@@ -36,7 +38,11 @@ jobs:
           npm -C web run build
           if ($LASTEXITCODE) { exit $LASTEXITCODE }
       - name: 原生 Windows 七组检查
+        timeout-minutes: 30
         run: python .ci-validation/run_ci.py windows-smoke --evidence evidence
+      - name: 构建待验收程序
+        id: build
+        run: cargo build -p cccc --bin cccc --locked
       - name: CLI 管理 Windows 回归
         id: cli
         run: |
@@ -46,19 +52,20 @@ jobs:
           if ($LASTEXITCODE) { exit $LASTEXITCODE }
           cargo test -p cccc-pair-daemon --lib --locked windows_managed_actor_update_uninstall_and_external_fallback -- --test-threads=1
           if ($LASTEXITCODE) { exit $LASTEXITCODE }
-          cargo build -p cccc --bin cccc --locked
-          if ($LASTEXITCODE) { exit $LASTEXITCODE }
       - name: 准备真实浏览器
+        id: browser
+        if: ${{ !cancelled() && steps.build.outcome == 'success' }}
         run: |
           npm install --global agent-browser@0.37.1
           if ($LASTEXITCODE) { exit $LASTEXITCODE }
           agent-browser install
           if ($LASTEXITCODE) { exit $LASTEXITCODE }
       - name: 真实 Windows Web 验收
+        if: ${{ !cancelled() && steps.browser.outcome == 'success' }}
         run: python web/tests/browser/cli-management.py --binary target/debug/cccc.exe --root "$env:RUNNER_TEMP/cli-gui"
       - name: 安装校验过的 mise
         id: mise
-        if: ${{ !cancelled() && steps.cli.outcome == 'success' }}
+        if: ${{ !cancelled() && steps.build.outcome == 'success' }}
         run: |
           $folder = Join-Path $env:RUNNER_TEMP 'mise-validation'
           New-Item -ItemType Directory -Path $folder | Out-Null
