@@ -67,6 +67,16 @@ jobs:
           $browser = Join-Path (npm root --global) 'agent-browser/bin/agent-browser-win32-x64.exe'
           if (-not (Test-Path $browser)) { throw '缺少 agent-browser 原生可执行文件' }
           python web/tests/browser/cli-management.py --binary target/debug/cccc.exe --root "$env:RUNNER_TEMP/cli-gui" --browser "$browser"
+      - name: 即时保存页面诊断
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: cli-management-gui-diagnostics
+          path: |
+            ${{ runner.temp }}/cli-gui/evidence/
+            ${{ runner.temp }}/cli-gui/home/cli-management/logs/
+            ${{ runner.temp }}/cli-gui/home/cli-management/state.json
+          if-no-files-found: warn
       - name: 安装校验过的 mise
         id: mise
         if: ${{ !cancelled() && steps.build.outcome == 'success' }}
