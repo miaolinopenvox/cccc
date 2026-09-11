@@ -61,6 +61,7 @@ jobs:
           agent-browser install
           if ($LASTEXITCODE) { exit $LASTEXITCODE }
       - name: 真实 Windows Web 验收
+        timeout-minutes: 15
         if: ${{ !cancelled() && steps.browser.outcome == 'success' }}
         run: |
           $browser = Join-Path (npm root --global) 'agent-browser/bin/agent-browser-win32-x64.exe'
