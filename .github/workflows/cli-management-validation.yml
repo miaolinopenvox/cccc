@@ -76,8 +76,9 @@ jobs:
           $url = 'https://github.com/jdx/mise/releases/download/v2026.9.3'
           $asset = 'mise-v2026.9.3-windows-x64.exe'
           Invoke-WebRequest "$url/$asset" -OutFile "$folder/mise.exe"
-          $hashes = (Invoke-WebRequest "$url/SHASUMS256.txt").Content
-          $line = @($hashes -split "`n" | Where-Object { $_ -match "\s+$([regex]::Escape($asset))\s*$" })
+          Invoke-WebRequest "$url/SHASUMS256.txt" -OutFile "$folder/SHASUMS256.txt"
+          $hashes = Get-Content "$folder/SHASUMS256.txt" -Raw
+          $line = @($hashes -split "`n" | Where-Object { $_ -match "\s+(?:\./)?$([regex]::Escape($asset))\s*$" })
           if ($line.Count -ne 1) { throw 'mise 校验和缺失或不唯一' }
           $expected = ($line[0] -split '\s+')[0]
           if ((Get-FileHash "$folder/mise.exe" -Algorithm SHA256).Hash -ne $expected) { throw 'mise 校验失败' }
@@ -103,6 +104,8 @@ jobs:
           path: |
             evidence/
             ${{ runner.temp }}/cli-gui/evidence/
+            ${{ runner.temp }}/cli-gui/home/cli-management/logs/
+            ${{ runner.temp }}/cli-gui/home/cli-management/state.json
             ${{ runner.temp }}/real-cli-*/cli-management/logs/
             ${{ runner.temp }}/real-cli-*/cli-management/state.json
           if-no-files-found: error
