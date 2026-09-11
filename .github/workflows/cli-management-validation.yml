@@ -62,7 +62,10 @@ jobs:
           if ($LASTEXITCODE) { exit $LASTEXITCODE }
       - name: 真实 Windows Web 验收
         if: ${{ !cancelled() && steps.browser.outcome == 'success' }}
-        run: python web/tests/browser/cli-management.py --binary target/debug/cccc.exe --root "$env:RUNNER_TEMP/cli-gui"
+        run: |
+          $browser = Join-Path (npm root --global) 'agent-browser/bin/agent-browser-win32-x64.exe'
+          if (-not (Test-Path $browser)) { throw '缺少 agent-browser 原生可执行文件' }
+          python web/tests/browser/cli-management.py --binary target/debug/cccc.exe --root "$env:RUNNER_TEMP/cli-gui" --browser "$browser"
       - name: 安装校验过的 mise
         id: mise
         if: ${{ !cancelled() && steps.build.outcome == 'success' }}
