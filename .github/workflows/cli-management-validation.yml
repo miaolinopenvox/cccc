@@ -1,0 +1,96 @@
+name: CLI 管理 Windows 独立验证
+on:
+  push:
+    branches: ["validation/cli-management-*"]
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  windows:
+    if: github.repository == 'miaolinopenvox/cccc'
+    runs-on: windows-latest
+    timeout-minutes: 180
+    env:
+      CARGO_BUILD_JOBS: "2"
+      CARGO_INCREMENTAL: "0"
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.14"
+      - uses: actions/setup-node@v7
+        with:
+          node-version: "24.19.0"
+      - uses: dtolnay/rust-toolchain@1.88.0
+      - uses: Swatinem/rust-cache@v2
+      - name: 准备检查依赖和原生 Web 产物
+        run: |
+          python -m pip install pyyaml
+          npm ci --prefix web
+          if ($LASTEXITCODE) { exit $LASTEXITCODE }
+          npm -C web run check
+          if ($LASTEXITCODE) { exit $LASTEXITCODE }
+          npm -C web test
+          if ($LASTEXITCODE) { exit $LASTEXITCODE }
+          npm -C web run build
+          if ($LASTEXITCODE) { exit $LASTEXITCODE }
+      - name: 原生 Windows 七组检查
+        run: python .ci-validation/run_ci.py windows-smoke --evidence evidence
+      - name: CLI 管理 Windows 回归
+        id: cli
+        run: |
+          cargo test -p cccc-pair-core --lib --locked cli_management -- --test-threads=1
+          if ($LASTEXITCODE) { exit $LASTEXITCODE }
+          cargo test -p cccc-pair-daemon --lib --locked cli_management -- --test-threads=1
+          if ($LASTEXITCODE) { exit $LASTEXITCODE }
+          cargo test -p cccc-pair-daemon --lib --locked windows_managed_actor_update_uninstall_and_external_fallback -- --test-threads=1
+          if ($LASTEXITCODE) { exit $LASTEXITCODE }
+          cargo build -p cccc --bin cccc --locked
+          if ($LASTEXITCODE) { exit $LASTEXITCODE }
+      - name: 准备真实浏览器
+        run: |
+          npm install --global agent-browser@0.37.1
+          if ($LASTEXITCODE) { exit $LASTEXITCODE }
+          agent-browser install
+          if ($LASTEXITCODE) { exit $LASTEXITCODE }
+      - name: 真实 Windows Web 验收
+        run: python web/tests/browser/cli-management.py --binary target/debug/cccc.exe --root "$env:RUNNER_TEMP/cli-gui"
+      - name: 安装校验过的 mise
+        id: mise
+        if: ${{ !cancelled() && steps.cli.outcome == 'success' }}
+        run: |
+          $folder = Join-Path $env:RUNNER_TEMP 'mise-validation'
+          New-Item -ItemType Directory -Path $folder | Out-Null
+          $url = 'https://github.com/jdx/mise/releases/download/v2026.9.3'
+          $asset = 'mise-v2026.9.3-windows-x64.exe'
+          Invoke-WebRequest "$url/$asset" -OutFile "$folder/mise.exe"
+          $hashes = (Invoke-WebRequest "$url/SHASUMS256.txt").Content
+          $line = @($hashes -split "`n" | Where-Object { $_ -match "\s+$([regex]::Escape($asset))\s*$" })
+          if ($line.Count -ne 1) { throw 'mise 校验和缺失或不唯一' }
+          $expected = ($line[0] -split '\s+')[0]
+          if ((Get-FileHash "$folder/mise.exe" -Algorithm SHA256).Hash -ne $expected) { throw 'mise 校验失败' }
+          $folder | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
+      - name: 逐项真实安装、更新、修复和卸载
+        if: ${{ !cancelled() && steps.mise.outcome == 'success' }}
+        run: |
+          $env:CCCC_LAUNCHER_PATH = Join-Path $env:GITHUB_WORKSPACE 'target/debug/cccc.exe'
+          $runtimes = 'amp','antigravity','auggie','claude','cline','codex','copilot','kilo','grok','kimi','opencode','deepseek','devin','hermes'
+          $failed = @()
+          foreach ($runtime in $runtimes) {
+            $env:CLI_MANAGEMENT_TEST_ROOT = Join-Path $env:RUNNER_TEMP "real-cli-$runtime"
+            $env:CLI_MANAGEMENT_TEST_RUNTIME = $runtime
+            cargo test -p cccc-pair-daemon --lib --locked real_install_and_update_in_explicit_lab -- --ignored --nocapture --test-threads=1 2>&1 | Tee-Object "evidence/vendor-$runtime.log"
+            if ($LASTEXITCODE) { $failed += $runtime }
+          }
+          if ($failed.Count) { throw "真实供应商验证未通过：$($failed -join ', ')" }
+      - name: 保存证据
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: cli-management-windows-evidence
+          path: |
+            evidence/
+            ${{ runner.temp }}/cli-gui/evidence/
+            ${{ runner.temp }}/real-cli-*/cli-management/logs/
+            ${{ runner.temp }}/real-cli-*/cli-management/state.json
+          if-no-files-found: error
